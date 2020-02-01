@@ -1,2 +1,13 @@
 github :
 1. git pull origin master
+当我们在本地提交到远程仓库的时候，如果遇到上述问题，我们可以首先使用如下命令：
+
+git rebase origin/master
+
+然后使用
+
+git pull --rebase
+
+最后使用
+
+git push origin master
