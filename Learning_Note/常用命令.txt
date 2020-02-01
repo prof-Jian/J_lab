@@ -1,0 +1,2 @@
+github :
+1. git pull origin master

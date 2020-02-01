@@ -1,0 +1,14 @@
+工作路径：
+In [1]:import os
+
+In [2]: os.getcwd()  #获取当前工作路径
+Out[2]: 'C:\\Users\\Go J\\Documents'
+
+In [3]:os.chdir('C:\\Cs_master\\pytorch_programs\\learn_Pytorch_the_hard_way\\TD-LSTM')  #改变当前目录
+
+cmd操作：
+cd Cs_master/pytorch_programs/learn_Pytorch_the_hard_way/TD-LSTM
+返回上一级菜单： cd ..
+
+运行某程序：
+In [1]:run 文件名.py

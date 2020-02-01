@@ -1,0 +1,5 @@
+https://leemeng.tw/gpt2-language-model-generate-chinese-jing-yong-novels.html
+
+https://github.com/Morizeyao/GPT2-Chinese
+
+https://jalammar.github.io/illustrated-gpt2/
