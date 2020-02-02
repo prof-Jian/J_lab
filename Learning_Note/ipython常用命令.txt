@@ -4,7 +4,7 @@ In [1]:import os
 In [2]: os.getcwd()  #获取当前工作路径
 Out[2]: 'C:\\Users\\Go J\\Documents'
 
-In [3]:os.chdir('C:\\Cs_master\\pytorch_programs\\learn_Pytorch_the_hard_way\\TD-LSTM')  #改变当前目录
+In [3]:os.chdir('E:\\J_lab\\Learning From Papers\\TextGAN-PyTorch-master\\TextGAN-PyTorch-master\\run')  #改变当前目录
 
 cmd操作：
 cd Cs_master/pytorch_programs/learn_Pytorch_the_hard_way/TD-LSTM

@@ -111,22 +111,36 @@ def get_arguments():
         "real_data_params" : real_data_params
     }
 #List of models
-def prepare_model_dict(use_cuda=False):
+def prepare_model_dict(use_cuda=False): # 当然是True
     f = open("./params/leak_gan_params.json")
     params = json.load(f)
     f.close()
-    discriminator_params = params["discriminator_params"]
-    generator_params = params["generator_params"]
+    discriminator_params = params["discriminator_params"] #{'discriminator_params': 
+                                                          # {'seq_len': 20, 'num_classes': 2, 'vocab_size': 5258, 
+                                                          # 'dis_emb_dim': 64, 
+                                                          # 'filter_sizes': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20], 
+                                                          # 'num_filters': [100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160], 
+                                                          # 'start_token': 0, 'goal_out_size': None, 
+                                                          # 'step_size': 5, 
+                                                          # 'dropout_prob': 0.8,
+                                                          #  'l2_reg_lambda': 0.2},
+    generator_params = params["generator_params"]    #'generator_params': 
+                                                     # {'manager_params': {'batch_size': 64, 'hidden_dim': 32,
+                                                     #                       'goal_out_size': None}, 
+                                                     #   'worker_params': {'batch_size': 64, 'vocab_size': 5258, 
+                                                     #                      'embed_dim': 32, 'hidden_dim': 32, 
+                                                     #                      'goal_out_size': None, 'goal_size': 16}, 
+                                                     #   'step_size': 5}
     worker_params = generator_params["worker_params"]
     manager_params = generator_params["manager_params"]
-    discriminator_params["goal_out_size"] = sum(
-        discriminator_params["num_filters"]
-    )
+    discriminator_params["goal_out_size"] = sum(discriminator_params["num_filters"])
     worker_params["goal_out_size"] = discriminator_params["goal_out_size"]
     manager_params["goal_out_size"] = discriminator_params["goal_out_size"]
     discriminator = Discriminator(**discriminator_params)
     generator = Generator(worker_params, manager_params,
-                          generator_params["step_size"])
+                          generator_params["step_size"]) 
+    # 以上这种传参数的方法好飘啊
+
     if use_cuda:
         generator = generator.cuda()
         discriminator = discriminator.cuda()
@@ -192,25 +206,30 @@ def pretrain_generator(model_dict, optimizer_dict, scheduler_dict, dataloader, v
 
         sample = Variable(sample)
         if use_cuda:
-            sample = sample.cuda(async=True)
+            sample = sample.cuda() #sample = sample.cuda()
         
         # Calculate pretrain loss
         if (sample.size() == torch.zeros([64, 20]).size()): #sometimes smaller than 64 (16) is passed, so this if statement disables it
-            #print("Sample size: {}".format(sample.size()))
-            pre_rets = recurrent_func("pre")(model_dict, sample, use_cuda)
+            # 上面这一行能不能效率更高一些，只检测size[0]是否等于64就可以了
+            #print("Sample size: {}".format(sample.size()))      其中sample:[batch_size , seq_len]
+            pre_rets = recurrent_func("pre")(model_dict, sample, use_cuda) 
             real_goal = pre_rets["real_goal"]
             prediction = pre_rets["prediction"]
             delta_feature = pre_rets["delta_feature"]
 
+            #real_goal和delta求manager的loss，prediction和sample求worker的loss
             m_loss = loss_func("pre_manager")(real_goal, delta_feature)
-            torch.autograd.grad(m_loss, manager.parameters())
+            torch.autograd.grad(m_loss, manager.parameters()) #这一行不会更改manager.parameters的grad呀？？？有什么用？？？
             clip_grad_norm_(manager.parameters(), max_norm=max_norm)
             m_optimizer.step()
             m_optimizer.zero_grad()
-            
+            # 现在我的理解，上面4行：前两行只是为了裁剪梯度
+            # 这里较平常的训练过程还有一点区别，平常一般是optimizer.zero_grad() -> loss -> loss.backward() -> optimizer.step()
+            # 这里不需要loss.backward()吗？
+
             w_loss = loss_func("pre_worker")(sample, prediction, vocab_size, use_cuda)
-            torch.autograd.grad(w_loss, worker.parameters())
-            clip_grad_norm_(worker.parameters(), max_norm=max_norm)
+            torch.autograd.grad(w_loss, worker.parameters()) #这里是求d(w_loss)/d(worker.parameters),但是这里又并不把结果分给任何一个变量
+            clip_grad_norm_(worker.parameters(), max_norm=max_norm) #这个超参被设定为5，为什么？
             w_optimizer.step()
             w_optimizer.zero_grad()
             if i == 63:
@@ -246,14 +265,14 @@ def pretrain_discriminator(model_dict, optimizer_dict, scheduler_dict,
                            negative_file, batch_size, epochs, use_cuda=False, temperature=1.0):
     discriminator = model_dict["discriminator"]
 
-    d_optimizer = optimizer_dict["discriminator"]
-    d_lr_scheduler = scheduler_dict["discriminator"]
+    d_optimizer = optimizer_dict["discriminator"] # d_optimizer = optim.Adam(discriminator.parameters(), lr=d_lr)
+    d_lr_scheduler = scheduler_dict["discriminator"] # d_scheduler = optim.lr_scheduler.StepLR(d_optimizer, step_size=step_size, gamma=gamma)
 
-    generate_samples(model_dict, negative_file, batch_size, use_cuda, temperature)
+    generate_samples(model_dict, negative_file, batch_size, use_cuda, temperature) #
     dis_dataloader_params["positive_filepath"] = positive_file
     dis_dataloader_params["negative_filepath"] = negative_file
     #print(dis_dataloader_params)
-    dataloader = dis_data_loader(**dis_dataloader_params) #this is where data iterator is used
+    dataloader = dis_data_loader(**dis_dataloader_params) # this is where data iterator is used
 
     cross_entropy = nn.CrossEntropyLoss() #this one is similar to NLL (negative log likelihood)
     if use_cuda:
@@ -262,24 +281,30 @@ def pretrain_discriminator(model_dict, optimizer_dict, scheduler_dict,
     for epoch in range(epochs):
         for i, sample in enumerate(dataloader):
             d_optimizer.zero_grad()
-            data, label = sample["data"], sample["label"] #initialize sample variables
+            data, label = sample["data"], sample["label"] #initialize sample variables 这里有个大问题，这个sample是batch_size的吗？
             data = Variable(data)
             label = Variable(label)
             if use_cuda:
                 data = data.cuda()
                 label = label.cuda()
-            outs = discriminator(data)
-            loss = cross_entropy(outs["score"], label.view(-1)) + discriminator.l2_loss()
-            d_lr_scheduler.step()
+            outs = discriminator(data) # 目前我从Dsicriminator里面的提示，得到data是batch_size * seq_len的
+            loss = cross_entropy(outs["score"], label.view(-1)) + discriminator.l2_loss() # 加上l2_loss这个是防止过拟合吗？注意，这个l2只是最后的linear部分系数，不涉及CNN部分
+            d_lr_scheduler.step() # 这个和optimizer.step()谁先？ scheduler的参数和epochs是否要配合？？
             loss.backward()
             d_optimizer.step()
             if i == 63:
-                print("Pre-Discriminator loss: {:.5f}".format(loss))
+                print("Pre-Discriminator loss: {:.5f}".format(loss)) # 这是什么意思？？
     
     model_dict["discriminator"] = discriminator
     optimizer_dict["discriminator"] = d_optimizer
     scheduler_dict["discriminator"] = d_lr_scheduler
     return model_dict, optimizer_dict, scheduler_dict
+
+'''
+以上pretrain_discriminator(...)代码的疑问：
+1. dataloader具体每次出来的是什么格式的东西？
+2. 为什么用i == 63 ，不应该看每次epoch结束的时候吗？我的实验代码每一个Epoch下面就一行Pre-Discriminator loss，我觉得这个代码写得真丑！
+'''
 
 #Adversarial training 
 def adversarial_train(model_dict, optimizer_dict, scheduler_dict, dis_dataloader_params,
@@ -366,8 +391,8 @@ def adversarial_train(model_dict, optimizer_dict, scheduler_dict, dis_dataloader
                 data = Variable(data)
                 label = Variable(label)
                 if use_cuda:
-                    data = data.cuda(async=True)
-                    label = label.cuda(async=True)
+                    data = data.cuda()
+                    label = label.cuda()
                 outs = discriminator(data)
                 loss = cross_entropy(outs["score"], label.view(-1)) + discriminator.l2_loss()
                 d_optimizer.zero_grad()
@@ -406,15 +431,15 @@ def restore_checkpoint(ckpt_path):
     return checkpoint
 
 def main():
-    """
-    Get all parameters
-    """
+    # 不知道这里为什么没有用args那一套
     param_dict = get_arguments()
     use_cuda = torch.cuda.is_available()
+    
     #Random seed
     torch.manual_seed(param_dict["train_params"]["seed"])
+
     #Pretrain step
-    checkpoint_path = param_dict["train_params"]["checkpoint_path"]
+    checkpoint_path = param_dict["train_params"]["checkpoint_path"] # None
     if checkpoint_path is not None:
         checkpoint = restore_checkpoint(checkpoint_path)
         model_dict = checkpoint["model_dict"]
@@ -423,25 +448,42 @@ def main():
         ckpt_num = checkpoint["ckpt_num"]
     else:
         model_dict = prepare_model_dict(use_cuda)
-        lr_dict = param_dict["train_params"]["lr_dict"]
-        optimizer_dict = prepare_optimizer_dict(model_dict, lr_dict)
-        gamma = param_dict["train_params"]["decay_rate"]
-        step_size = param_dict["train_params"]["decay_step_size"]
-        scheduler_dict = prepare_scheduler_dict(optimizer_dict, gamma=gamma, step_size=step_size)
+        lr_dict = param_dict["train_params"]["lr_dict"] #{'worker': 0.0015, 'manager': 0.0015, 'discriminator': 5e-05},
+        optimizer_dict = prepare_optimizer_dict(model_dict, lr_dict)  #return {"worker": w_optimizer, 
+                                                                      #        "manager": m_optimizer,
+                                                                      #        "discriminator": d_optimizer}
+        gamma = param_dict["train_params"]["decay_rate"] # 'decay_rate': 0.99
+        step_size = param_dict["train_params"]["decay_step_size"] # 'decay_step_size': 200
+        scheduler_dict = prepare_scheduler_dict(optimizer_dict, gamma=gamma, step_size=step_size) #return {"worker": w_scheduler, 
+                                                                                                  #        "manager": m_scheduler,
+                                                                                                  #         "discriminator": d_scheduler}
+        """
+        # Assuming optimizer uses lr = 0.05 for all groups
+        # lr = 0.05     if epoch < 30
+        # lr = 0.005    if 30 <= epoch < 60
+        # lr = 0.0005   if 60 <= epoch < 90
+        # ...
+        scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+        for epoch in range(100):
+            train(...)
+            validate(...)
+            scheduler.step()
+        """
+
     #Pretrain discriminator
     print ("#########################################################################")
     print ("Start Pretraining Discriminator...")
     with open("./params/dis_data_params.json", 'r') as f:
-        dis_data_params = json.load(f)
+        dis_data_params = json.load(f) #这里为什么不直接一点：dis_data_params = param_dict["dis_data_params"]
     if use_cuda:
-        dis_data_params["pin_memory"] = True
+        dis_data_params["pin_memory"] = True # pin_memory是什么东西
     f.close()
     pos_file = dis_data_params["positive_filepath"]
     neg_file = dis_data_params["negative_filepath"]
-    batch_size = param_dict["train_params"]["generated_num"]
-    vocab_size = param_dict["leak_gan_params"]["discriminator_params"]["vocab_size"]
-    for i in range(param_dict["train_params"]["pre_dis_epoch_num"]):
-        print("Epoch: {}/{}  Pre-Discriminator".format(i, param_dict["train_params"]["pre_dis_epoch_num"]))
+    batch_size = param_dict["train_params"]["generated_num"] #'generated_num': 156
+    vocab_size = param_dict["leak_gan_params"]["discriminator_params"]["vocab_size"] #'vocab_size': 5258
+    for i in range(param_dict["train_params"]["pre_dis_epoch_num"]): # 'pre_dis_epoch_num': 50
+        print("Epoch: {}/{}  Pre-Discriminator".format(i+1, param_dict["train_params"]["pre_dis_epoch_num"]))
         model_dict, optimizer_dict, scheduler_dict = pretrain_discriminator(model_dict, optimizer_dict, scheduler_dict, dis_data_params, vocab_size=vocab_size, positive_file=pos_file, negative_file=neg_file, batch_size=batch_size, epochs=1, use_cuda=use_cuda)
     ckpt_num = 0
     save_checkpoint(model_dict, optimizer_dict, scheduler_dict, ckpt_num)
@@ -468,6 +510,7 @@ def main():
     save_num = param_dict["train_params"]["save_num"] #save checkpoint after this number of repetitions
     replace_num = param_dict["train_params"]["replace_num"]
 
+    param_dict["train_params"]["total_epoch"] = 10
     for epoch in range(param_dict["train_params"]["total_epoch"]):
         print("Epoch: {}/{}  Adv".format(epoch, param_dict["train_params"]["total_epoch"]))
         model_dict, optimizer_dict, scheduler_dict = adversarial_train(model_dict, optimizer_dict, scheduler_dict, dis_data_params, vocab_size=vocab_size, pos_file=pos_file, neg_file=neg_file, batch_size=batch_size, use_cuda=use_cuda, epoch=epoch, tot_epoch=param_dict["train_params"]["total_epoch"])
@@ -479,4 +522,5 @@ def main():
                save_checkpoint(model_dict, optimizer_dict, scheduler_dict, ckpt_num)
 
 if __name__ == "__main__":
+    __spec__ = "ModuleSpec(name='builtins', loader=<class '_frozen_importlib.BuiltinImporter'>)" #只是在jupyter里面运行需要这一句
     main()

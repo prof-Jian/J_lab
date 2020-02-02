@@ -10,15 +10,16 @@ def init_vars(generator, discriminator, use_cuda=False):
     h_w_t, c_w_t = generator.init_hidden() #worker unit of gen
     h_m_t, c_m_t = generator.init_hidden() #manager unit of gen
     last_goal = Variable(torch.zeros(generator.worker.batch_size, generator.worker.goal_out_size)) #bach_size * goal_out_size
-    real_goal = generator.manager.goal_init
+    real_goal = generator.manager.goal_init #[batch_size, goal_out_size]也不知道这里到底是全零还是其他
+    # 如果last_goal,real_goal格式一样，还都是0，为什么生成的函数不一样
     x_t = Variable(nn.init.constant_(torch.Tensor(
         generator.worker.batch_size
-    ), discriminator.start_token)).long()
+    ), discriminator.start_token)).long() #discriminator.start_token = 0
     variables_ = [h_w_t, c_w_t, h_m_t, c_m_t, last_goal, real_goal, x_t]
     vs = []
     if use_cuda:
         for var in variables_:
-            var = var.cuda(async=True)
+            var = var.cuda()
             vs.append(var)
     else:
         vs = variables_
@@ -26,10 +27,11 @@ def init_vars(generator, discriminator, use_cuda=False):
 
 def recurrent_func(f_type = "pre"):
     """
-    There are 3 types of recurrent function:
+    There are 4 types of recurrent function:
         1. pre = pretrain
         2. adv = adversarial train
         3. rollout = rollout for evaluate reward
+        4. gen = 
 
     Each kind of training has its own function
     """
@@ -38,7 +40,7 @@ def recurrent_func(f_type = "pre"):
             """
                 Get generator and discriminator
             """
-            #print("After sample size: {}".format(real_data.size()))
+            #print("After sample size: {}".format(real_data.size())) ->(64,20)
             generator = model_dict["generator"]
             discriminator = model_dict["discriminator"]
             '''
@@ -52,7 +54,7 @@ def recurrent_func(f_type = "pre"):
             prediction_list = []
             real_goal_list = []
             batch_size = generator.worker.batch_size
-            seq_len = discriminator.seq_len
+            seq_len = discriminator.seq_len # 20
             step_size = generator.step_size
             goal_out_size = generator.worker.goal_out_size
             vocab_size = discriminator.vocab_size
@@ -62,22 +64,25 @@ def recurrent_func(f_type = "pre"):
             while t < seq_len + 1:
                 #Extract Feature from D
                 if t == 0:
-                    cur_sen = Variable(nn.init.constant_(
-                        torch.zeros(batch_size, seq_len), vocab_size
-                    )).long()
+                    cur_sen = Variable(nn.init.constant_( # Fills the input Tensor with the value val.
+                        torch.zeros(batch_size, seq_len), vocab_size # 
+                    )).long() # 此时cur_sen是一个size为[batch_size,seq_len]，里面每个element都等于5258的矩阵
                     #print("Batch Size: {}".format(batch_size))
                     #print("Real Data: {}".format(cur_sen.size()))
                 else:
-                    cur_sen = real_data[:,:t]
+                    cur_sen = real_data[:,:t] #切片
                     #print("Real Data: {}".format(real_data.size()))
                     #print("t: {}".format(t))
                     cur_sen = cur_sen.contiguous()
                     cur_sen = F.pad(cur_sen.view(-1, t), (0, seq_len - t), value=vocab_size)
+                    # 这样一整，那cur_sen[0]还等于batch_size吗？？
+                #我猜，以上这个if else就是为了cur_sen整齐划一的都是：一个size为[batch_size,seq_len]，里面每个element都等于5258的矩阵
+                # "cur_sen" is short for????
                 if use_cuda:
-                    cur_sen = cur_sen.cuda(async=True)
+                    cur_sen = cur_sen.cuda()
                 #print("Current sentence:{}".format(cur_sen))
                 #print("Current sentence size:{}".format(cur_sen.size()))
-                f_t= discriminator(cur_sen)["feature"]
+                f_t = discriminator(cur_sen)["feature"]
                 #print("F_t from discr: {}".format(f_t))
                 #print("F_t from discr: {}".format(f_t.size()))
                 #G forward tep
@@ -91,7 +96,7 @@ def recurrent_func(f_type = "pre"):
                         real_goal = last_goal
                     last_goal = Variable(torch.zeros(batch_size, goal_out_size))
                     if use_cuda:
-                        last_goal = last_goal.cuda(async=True)
+                        last_goal = last_goal.cuda()
                     real_goal_list.append(real_goal)
                 """
                 Store needed information for calculating loss function
@@ -161,7 +166,7 @@ def recurrent_func(f_type = "pre"):
                     cur_sen = F.pad(cur_sen, (0, seq_len - t), value=vocab_size)
                 #Why no cuda here: CHECK: ADD CUDA!!!!
                 if use_cuda:
-                    cur_sen = cur_sen.cuda(async=True)
+                    cur_sen = cur_sen.cuda()
                 f_t = discriminator(cur_sen)["feature"]
                 #Generator forward step
                 x_t, h_m_t, c_m_t, h_w_t, c_w_t, last_goal, real_goal, sub_goal, probs, t_ = generator(x_t, f_t, h_m_t, c_m_t, h_w_t, c_w_t, last_goal, real_goal, t, temperature)
@@ -170,7 +175,7 @@ def recurrent_func(f_type = "pre"):
                         real_goal = last_goal
                     last_goal = Variable(torch.zeros(batch_size, goal_out_size))
                     if use_cuda:
-                        last_goal = last_goal.cuda(async=True)
+                        last_goal = last_goal.cuda()
                     real_goal_list.append(real_goal)
                 #Store info for calculating loss function
                 feature_list.append(f_t)
@@ -233,7 +238,7 @@ def recurrent_func(f_type = "pre"):
                 if t == 0: 
                     cur_sen = Variable(nn.init.constant_(torch.zeros(batch_size, seq_len), vocab_size)).long()
                     if use_cuda:
-                        cur_sen = cur_sen.cuda(async=True)
+                        cur_sen = cur_sen.cuda()
                 else:
                     cur_sen = torch.stack(gen_token_list).permute(1,0)
                     cur_sen = F.pad(cur_sen, (0, seq_len - t), value=vocab_size)
@@ -246,7 +251,7 @@ def recurrent_func(f_type = "pre"):
                         real_goal = last_goal
                     last_goal = Variable(torch.zeros(batch_size, goal_out_size))
                     if use_cuda:
-                        last_goal = last_goal.cuda(async=True)
+                        last_goal = last_goal.cuda()
                 if t < given_num:
                     x_t = input_x[:, t].contiguous()
                     gen_token_list.append(x_t)
@@ -257,7 +262,7 @@ def recurrent_func(f_type = "pre"):
                 if len(gen_token_list) == 0:
                     cur_sen = Variable(nn.init.constant_(torch.zeros(batch_size, seq_len), vocab_size)).long()
                     if use_cuda:
-                        cur_sen = cur_sen.cuda(async=True)
+                        cur_sen = cur_sen.cuda()
                 else:
                     cur_sen = torch.stack(gen_token_list).permute(1,0)
                     cur_sen = F.pad(cur_sen, (0, seq_len - t + 1), value=vocab_size)
@@ -271,12 +276,13 @@ def recurrent_func(f_type = "pre"):
                     batch_size, goal_out_size
                 ))
                 if use_cuda:
-                    last_goal = last_goal.cuda(async=True)
+                    last_goal = last_goal.cuda()
                 gen_token_list.append(x_t)
                 t = t_
             gen_token = torch.stack(gen_token_list).permute(1, 0)
             return gen_token
         return func
+
     elif f_type == "gen":
         def func(model_dict, use_cuda=False, temperature=1.0):
             generator = model_dict["generator"]
@@ -298,7 +304,7 @@ def recurrent_func(f_type = "pre"):
                         torch.zeros(batch_size, seq_len), vocab_size)
                     ).long()
                     if use_cuda:
-                        cur_sen = cur_sen.cuda(async=True)
+                        cur_sen = cur_sen.cuda()
                 else:
                     cur_sen = torch.stack(gen_token_list).permute(1, 0)
                     cur_sen = F.pad(
@@ -313,7 +319,7 @@ def recurrent_func(f_type = "pre"):
                         real_goal = last_goal
                         last_goal = Variable(torch.zeros(batch_size, goal_out_size))
                     if use_cuda:
-                        last_goal = last_goal.cuda(async=True)
+                        last_goal = last_goal.cuda()
                 gen_token_list.append(x_t)
                 t = t_
             gen_token = torch.stack(gen_token_list).permute(1,0)
@@ -353,7 +359,7 @@ def get_rewards(model_dict, input_x, rollout_num, use_cuda=False, temperature=1.
             given_num += step_size
     rewards = rescale(rewards, delta) / rollout_num
     if use_cuda:
-        rewards = rewards.cuda(async=True)
+        rewards = rewards.cuda()
     discriminator = discriminator.train()
     return rewards
 def rescale(rewards, delta=16.0):
@@ -404,7 +410,7 @@ def one_hot(x, vocab_size, use_cuda=False):
     out = Variable(out)
     
     if use_cuda:
-        out = out.cuda(async=True)
+        out = out.cuda()
     return out
 
 def loss_func(f_type="pre_worker"):

@@ -28,7 +28,7 @@ class Dis_Dataset(Dataset):
     
     def __getitem__(self, idx):
         data = torch.from_numpy(self.data[idx]).long()
-        label = torch.nn.init.constant_(torch.zeros(1), int(self.label[idx])).long()
+        label = torch.nn.init.constant_(torch.zeros(1), int(self.label[idx])).long() #这个写出0或者1的方法好特别
         return {"data": data, "label": label}
 
 
@@ -38,4 +38,13 @@ def real_data_loader(filepath, batch_size, shuffle, num_workers, pin_memory):
 
 def dis_data_loader(positive_filepath, negative_filepath, batch_size, shuffle, num_workers, pin_memory):
     dataset = Dis_Dataset(positive_filepath, negative_filepath)
-    return DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=pin_memory)
+    return DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=pin_memory) #pin_memory不用特别注意，ture就意味着硬件够好，能够稍微快一点
+
+
+# 以上这个先继承Dataset，然后返回DataLoader的方法值得学习
+'''
+for i, sample in enumerate(dataloader):
+            data, label = sample["data"], sample["label"]
+
+这样的data居然就是batch_size * ......
+'''

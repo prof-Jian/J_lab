@@ -4,7 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-#A truncated distribution has its domain (the x-values) restricted to a certain range of values. For example, you might restrict your x-values to between 0 and 100, written in math terminology as {0 > x > 100}. There are several types of truncated distributions:
+#A truncated distribution has its domain (the x-values) restricted to a certain range of values.
+#For example, you might restrict your x-values to between 0 and 100, written in math terminology as {0 > x > 100}. 
+#There are several types of truncated distributions(截取顶端了的分布):
 def truncated_normal(shape, lower=-0.2, upper=0.2):
     size = 1
     for dim in shape:
@@ -26,6 +28,7 @@ class Highway(nn.Module):
         t = torch.sigmoid(self.fc2)
         out = g*t + (1. - t)*x
         return out
+
 class Discriminator(nn.Module):
     """
     A CNN for text classification
@@ -34,6 +37,22 @@ class Discriminator(nn.Module):
     """
     def __init__(self, seq_len, num_classes, vocab_size, dis_emb_dim, 
                     filter_sizes, num_filters, start_token, goal_out_size, step_size, dropout_prob, l2_reg_lambda):
+        '''
+        'discriminator_params': 
+         {'seq_len': 20, 
+         'num_classes': 2, 
+         'vocab_size': 5258, 
+         'dis_emb_dim': 64, 
+         'filter_sizes': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20], 
+         'num_filters': [100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160], 
+         'start_token': 0, 
+         'goal_out_size': sum(discriminator_params["num_filters"]) 
+         'step_size': 5, 
+         'dropout_prob': 0.8,
+         'l2_reg_lambda': 0.2
+
+         gen_corpus是一个9984*20的矩阵；
+        '''
         super(Discriminator, self).__init__()
         self.seq_len = seq_len
         self.num_classes = num_classes
@@ -41,7 +60,7 @@ class Discriminator(nn.Module):
         self.dis_emb_dim = dis_emb_dim
         self.filter_sizes = filter_sizes
         self.num_filters = num_filters
-        self.start_token = start_token
+        self.start_token = start_token #这是什么东西
         self.goal_out_size = goal_out_size
         self.step_size = step_size
         self.dropout_prob = dropout_prob
@@ -80,9 +99,9 @@ class Discriminator(nn.Module):
         #4. Add highway
         #5. Add dropout. This is when feature should be extracted
         #6. Final unnormalized scores and predictions
-        emb = self.emb(x).unsqueeze(1)
-        convs = [F.relu(conv(emb)).squeeze(3) for conv in self.convs] # [batch_size * num_filter * seq_len]
-        pooled_out = [F.max_pool1d(conv, conv.size(2)).squeeze(2) for conv in convs] # [batch_size * num_filter]
+        emb = self.emb(x).unsqueeze(1) # [batch_size * 1 * seq_len * emb_dim] because of the in_channels = 1 for the convs By Jian
+        convs = [F.relu(conv(emb)).squeeze(3) for conv in self.convs] # the size of the element in the List is [batch_size * num_filter * (seq_len - kernel_size + 1)]
+        pooled_out = [F.max_pool1d(conv, conv.size(2)).squeeze(2) for conv in convs] #  the size of the element in the List is [batch_size * num_filter]
         pred = torch.cat(pooled_out, 1) # batch_size * sum(num_filters)
         #print("Pred size: {}".format(pred.size()))
         highway = self.highway(pred)
@@ -92,6 +111,7 @@ class Discriminator(nn.Module):
         score = self.fc(features)
         pred = F.log_softmax(score, dim=1) #batch * num_classes
         return {"pred":pred, "feature":features, "score": score}
+
     def l2_loss(self):
         W = self.fc.weight
         b = self.fc.bias
